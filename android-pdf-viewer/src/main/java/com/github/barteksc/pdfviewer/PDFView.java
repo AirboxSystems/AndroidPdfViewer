@@ -1116,7 +1116,7 @@ public class PDFView extends RelativeLayout {
 
     /**
      * Get document size taking into account specific scale (zoom).
-     * Width is the page with maximum width and height is total height of all pages.
+     * Width - is largest page width; height - is total height of all pages in the document.
      * @param zoom scale value
      * @return document size
      */
@@ -1128,7 +1128,7 @@ public class PDFView extends RelativeLayout {
         float documentWidth = pdfFile.getMaxPageSize().getWidth() * zoom;
         float documentHeight = pdfFile.getDocLen(zoom);
         SizeF documentSize = new SizeF(documentWidth, documentHeight);
-        return  documentSize;
+        return documentSize;
     }
 
     /**
