@@ -1105,6 +1105,65 @@ public class PDFView extends RelativeLayout {
         return size * zoom;
     }
 
+    /**
+     * Get document size taking into account current scale (zoom).
+     * Width is the page with maximum width and height is total height of all pages.
+     * @return document size
+     */
+    public SizeF getDocumentSize() {
+        return  getDocumentSize(getZoom());
+    }
+
+    /**
+     * Get document size taking into account specific scale (zoom).
+     * Width - is largest page width; height - is total height of all pages in the document.
+     * @param zoom scale value
+     * @return document size
+     */
+    public SizeF getDocumentSize(float zoom) {
+        if (pdfFile == null) {
+            return null;
+        }
+
+        float documentWidth = pdfFile.getMaxPageSize().getWidth() * zoom;
+        float documentHeight = pdfFile.getDocLen(zoom);
+        SizeF documentSize = new SizeF(documentWidth, documentHeight);
+        return documentSize;
+    }
+
+    /**
+     * Get specific page offset taking into account current scale (zoom) and scroll direction
+     * @param pageIndex page index
+     * @return page offset
+     */
+    public PointF getPageOffset(int pageIndex) {
+        return getPageOffset(pageIndex, getZoom());
+    }
+
+    /**
+     * Get specific page offset taking into account specific scale (zoom) and scroll direction
+     * @param pageIndex page index
+     * @param zoom scale value
+     * @return page offset
+     */
+    public PointF getPageOffset(int pageIndex, float zoom) {
+        if (pdfFile == null) {
+            return null;
+        }
+
+        float pageX, pageY;
+
+        if (isSwipeVertical()) {
+            pageX = pdfFile.getSecondaryPageOffset(pageIndex, zoom);
+            pageY = pdfFile.getPageOffset(pageIndex, zoom);
+        } else {
+            pageY = pdfFile.getSecondaryPageOffset(pageIndex, zoom);
+            pageX = pdfFile.getPageOffset(pageIndex, zoom);
+        }
+
+        return  new PointF(pageX, pageY);
+    }
+
     public float getZoom() {
         return zoom;
     }

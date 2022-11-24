@@ -19,23 +19,32 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PointF;
 import android.net.Uri;
 import android.provider.OpenableColumns;
-import android.support.annotation.NonNull;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.app.AppCompatActivity;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.appcompat.app.AppCompatActivity;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.View;
 import android.widget.Toast;
 
 import com.github.barteksc.pdfviewer.PDFView;
+import com.github.barteksc.pdfviewer.listener.OnDrawListener;
 import com.github.barteksc.pdfviewer.listener.OnLoadCompleteListener;
 import com.github.barteksc.pdfviewer.listener.OnPageChangeListener;
 import com.github.barteksc.pdfviewer.listener.OnPageErrorListener;
 import com.github.barteksc.pdfviewer.scroll.DefaultScrollHandle;
 import com.github.barteksc.pdfviewer.util.FitPolicy;
 import com.shockwave.pdfium.PdfDocument;
+import com.shockwave.pdfium.util.Size;
+import com.shockwave.pdfium.util.SizeF;
 
 import org.androidannotations.annotations.AfterViews;
 import org.androidannotations.annotations.EActivity;
@@ -45,15 +54,26 @@ import org.androidannotations.annotations.OptionsItem;
 import org.androidannotations.annotations.OptionsMenu;
 import org.androidannotations.annotations.ViewById;
 
+import java.io.Console;
+import java.util.ArrayList;
 import java.util.List;
 
 @EActivity(R.layout.activity_main)
 @OptionsMenu(R.menu.options)
 public class PDFViewActivity extends AppCompatActivity implements OnPageChangeListener, OnLoadCompleteListener,
-        OnPageErrorListener {
+        OnPageErrorListener, OnDrawListener, View.OnTouchListener {
 
     private static final String TAG = PDFViewActivity.class.getSimpleName();
 
+    private boolean mIsAnnotateEnabled;
+    private Path mAnnotationDrawingPath;
+    private List<PointF> mAnnotationDrawingPoints;
+    private  AnnotateMode mAnnotateMode;
+    private final List<TAnnotation> mAnnotations = new ArrayList<TAnnotation>();
+    private final PointF mLastTouchPoint = new PointF();
+    private final PointF mStartTouchPoint = new PointF();
+
+    private static final double CLICK_SIZE = 3;
     private final static int REQUEST_CODE = 42;
     public static final int PERMISSION_CODE = 42042;
 
@@ -61,7 +81,7 @@ public class PDFViewActivity extends AppCompatActivity implements OnPageChangeLi
     public static final String READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
 
     @ViewById
-    PDFView pdfView;
+    AbxPdfView pdfView;
 
     @NonConfigurationInstance
     Uri uri;
@@ -89,6 +109,12 @@ public class PDFViewActivity extends AppCompatActivity implements OnPageChangeLi
         launchPicker();
     }
 
+    @OptionsItem(R.id.annotate)
+    void annotate() {
+        mIsAnnotateEnabled = !mIsAnnotateEnabled;
+        mAnnotateMode = AnnotateMode.NONE;
+    }
+
     void launchPicker() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("application/pdf");
@@ -103,6 +129,7 @@ public class PDFViewActivity extends AppCompatActivity implements OnPageChangeLi
     @AfterViews
     void afterViews() {
         pdfView.setBackgroundColor(Color.LTGRAY);
+        pdfView.setOnTouchInterceptor(this);
         if (uri != null) {
             displayFromUri(uri);
         } else {
@@ -120,9 +147,10 @@ public class PDFViewActivity extends AppCompatActivity implements OnPageChangeLi
                 .enableAnnotationRendering(true)
                 .onLoad(this)
                 .scrollHandle(new DefaultScrollHandle(this))
-                .spacing(10) // in dp
+                //.spacing(10) // in dp
                 .onPageError(this)
                 .pageFitPolicy(FitPolicy.BOTH)
+                .onDraw(this)
                 .load();
     }
 
@@ -135,8 +163,9 @@ public class PDFViewActivity extends AppCompatActivity implements OnPageChangeLi
                 .enableAnnotationRendering(true)
                 .onLoad(this)
                 .scrollHandle(new DefaultScrollHandle(this))
-                .spacing(10) // in dp
+                //.spacing(10) // in dp
                 .onPageError(this)
+                .onDraw(this)
                 .load();
     }
 
@@ -222,5 +251,174 @@ public class PDFViewActivity extends AppCompatActivity implements OnPageChangeLi
     @Override
     public void onPageError(int page, Throwable t) {
         Log.e(TAG, "Cannot load page " + page);
+    }
+
+    @Override
+    public void onLayerDrawn(Canvas canvas, float pageWidth, float pageHeight, int displayedPage) {
+        // Draw in progress annotation (currently drawn by user)
+        if (mAnnotationDrawingPath != null) {
+            Paint paint1 = new Paint();
+            paint1.setStyle(Paint.Style.STROKE);
+            paint1.setStrokeWidth(10);
+            paint1.setColor(Color.BLACK);
+            canvas.drawPath(mAnnotationDrawingPath, paint1);
+        }
+
+        // Draw cached annotations
+        Paint paint2 = new Paint();
+        paint2.setStyle(Paint.Style.STROKE);
+        paint2.setStrokeWidth(10);
+        paint2.setColor(Color.RED);
+
+        Log.d("OnDrawLayer", "############ ANNOTATIONS #################");
+
+        for (int i = 0; i < mAnnotations.size(); i++) {
+            Path path = new Path();
+            TAnnotation a = mAnnotations.get(i);
+            PointF startPoint = a.getPoints().get(0);
+            float documentWidth = pdfView.getDocumentSize().getWidth();
+            float documentHeight = pdfView.getDocumentSize().getHeight();
+            float pageXOffset = pdfView.getPageOffset(displayedPage).x;
+            float pageYOffset = pdfView.getPageOffset(displayedPage).y;
+            float startX = startPoint.x * documentWidth - pageXOffset;
+            float startY = startPoint.y * documentHeight - pageYOffset;
+            path.moveTo(startX, startY);
+
+            Log.d("OnDrawLayer", String.format("annotationIndex = %s", i));
+            Log.d("OnDrawLayer", String.format("startPoint = {%s, %s}", startX, startY));
+
+            for (int j = 1; j < a.getPoints().size(); j++)
+            {
+                PointF endPoint = a.getPoints().get(j);
+                float endX = endPoint.x * documentWidth - pageXOffset;
+                float endY = endPoint.y * documentHeight - pageYOffset;
+                path.lineTo(endX, endY);
+
+                Log.d("OnDrawLayer", String.format("endPoint = {%s, %s}", endX, endY));
+            }
+
+            canvas.drawPath(path, paint2);
+        }
+    }
+
+    @Override
+    public boolean onTouch(View view, MotionEvent motionEvent) {
+        if (!mIsAnnotateEnabled) {
+            return false;
+        }
+
+        PointF touchPoint0 = new PointF(motionEvent.getX(), motionEvent.getY());
+
+        SizeF documentSize = pdfView.getDocumentSize();
+        PointF touchPagePoint = convertTouchToPagePoint(pdfView, touchPoint0);
+        PointF touchDocumentPoint = convertPageToDocumentPoint(pdfView, touchPagePoint);
+        PointF touchDocumentUniversalPoint = new PointF(touchDocumentPoint.x / documentSize.getWidth(), touchDocumentPoint.y / documentSize.getHeight());
+
+        Log.d("onTouch", "#############################################################");
+        Log.d("onTouch", String.format("touchPoint = %s", touchPoint0.toString()));
+        Log.d("onTouch", String.format("touchPagePoint = %s", touchPagePoint.toString()));
+        Log.d("onTouch", String.format("touchDocumentPoint = %s", touchDocumentPoint.toString()));
+        Log.d("onTouch", String.format("touchDocumentUniversalPoint = %s", touchDocumentUniversalPoint.toString()));
+
+        switch (motionEvent.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                mLastTouchPoint.set(touchPoint0);
+                mStartTouchPoint.set(mLastTouchPoint);
+
+                if (mIsAnnotateEnabled && mAnnotateMode == AnnotateMode.NONE) {
+                    mAnnotationDrawingPath = new Path();
+                    mAnnotationDrawingPath.moveTo(touchPagePoint.x, touchPagePoint.y);
+
+                    mAnnotationDrawingPoints = new ArrayList<PointF>();
+                    mAnnotationDrawingPoints.add(touchDocumentUniversalPoint);
+
+                    mAnnotateMode = AnnotateMode.DRAW;
+                } else if (mAnnotateMode == AnnotateMode.NONE) {
+                    mAnnotateMode = AnnotateMode.DRAG;
+                }
+
+                break;
+
+            case MotionEvent.ACTION_MOVE:
+                if (mAnnotateMode == AnnotateMode.DRAG) {
+                    mLastTouchPoint.set(touchPoint0.x, touchPoint0.y);
+                } else if (mAnnotateMode == AnnotateMode.DRAW) {
+                    mAnnotationDrawingPath.lineTo(touchPagePoint.x, touchPagePoint.y);
+                    mAnnotationDrawingPoints.add(touchDocumentUniversalPoint);
+
+                    pdfView.postInvalidate();
+                }
+
+                break;
+
+            case MotionEvent.ACTION_UP:
+                float xDiff = Math.abs(touchPoint0.x - mStartTouchPoint.x);
+                float yDiff = Math.abs(touchPoint0.y - mStartTouchPoint.y);
+
+                if (xDiff < CLICK_SIZE && yDiff < CLICK_SIZE) {
+                    pdfView.performClick();
+                } else if (mAnnotateMode == AnnotateMode.DRAW) {
+                    mAnnotationDrawingPoints.add(touchDocumentUniversalPoint);
+
+                    mAnnotations.add(new TAnnotation(mAnnotationDrawingPoints));
+
+                    mAnnotationDrawingPath = null;
+                }
+
+                mAnnotateMode = AnnotateMode.NONE;
+
+                break;
+
+            case MotionEvent.ACTION_POINTER_UP:
+                mAnnotateMode = AnnotateMode.NONE;
+
+                break;
+        }
+
+        pdfView.invalidate();
+        return  true;
+    }
+
+    private  PointF convertTouchToPagePoint(PDFView view, PointF touchPoint) {
+        float mappedX = view.toRealScale(-view.getCurrentXOffset() + touchPoint.x);
+        float mappedy = view.toRealScale(-view.getCurrentYOffset() + touchPoint.y);
+        PointF currentPageOffset = view.getPageOffset(view.getCurrentPage(), 1);
+
+        mappedX = (mappedX - currentPageOffset.x) * view.getZoom();
+        mappedy = (mappedy - currentPageOffset.y) * view.getZoom();
+
+        PointF pagePoint = new PointF(mappedX, mappedy);
+
+        return pagePoint;
+    }
+
+    private  PointF convertPageToDocumentPoint(PDFView view, PointF pagePoint) {
+        PointF currentPageOffset = view.getPageOffset(view.getCurrentPage());
+        PointF documentPoint = new PointF(pagePoint.x + currentPageOffset.x, pagePoint.y + currentPageOffset.y);
+        return  documentPoint;
+    }
+
+    private enum AnnotateMode
+    {
+        NONE,
+        DRAG,
+        ZOOM,
+        DRAW,
+        DELETE
+    }
+
+    private class TAnnotation
+    {
+        private List<PointF> mPoints;
+
+        public TAnnotation(List<PointF> points)
+        {
+            mPoints = points;
+        }
+
+        public List<PointF> getPoints()
+        {
+            return  mPoints;
+        }
     }
 }
