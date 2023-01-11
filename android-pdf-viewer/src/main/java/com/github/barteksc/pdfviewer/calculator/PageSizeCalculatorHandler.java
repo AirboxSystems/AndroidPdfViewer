@@ -31,5 +31,4 @@ public interface PageSizeCalculatorHandler {
      * @return
      */
     SizeF calculate(Size pageSize, PageSizeCalculatorArgs args);
-
 }
