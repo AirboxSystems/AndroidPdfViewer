@@ -36,6 +36,8 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.widget.RelativeLayout;
 
+import com.github.barteksc.pdfviewer.calculator.DefaultPageSizeCalculatorHandler;
+import com.github.barteksc.pdfviewer.calculator.PageSizeCalculatorHandler;
 import com.github.barteksc.pdfviewer.exception.PageRenderingException;
 import com.github.barteksc.pdfviewer.link.DefaultLinkHandler;
 import com.github.barteksc.pdfviewer.link.LinkHandler;
@@ -171,6 +173,8 @@ public class PDFView extends RelativeLayout {
 
     /** Policy for fitting pages to screen */
     private FitPolicy pageFitPolicy = FitPolicy.WIDTH;
+
+    private PageSizeCalculatorHandler pageSizeCalculatorHandler;
 
     private boolean fitEachPage = false;
 
@@ -1302,6 +1306,24 @@ public class PDFView extends RelativeLayout {
         return pageFitPolicy;
     }
 
+    /**
+     * Gets currently set page size calculator handler
+     *
+     * @return
+     */
+    public PageSizeCalculatorHandler getPageSizeCalculatorHandler() {
+        return  pageSizeCalculatorHandler;
+    }
+
+    /**
+     * Sets page size calculator which is used to optimal page sizes to fit into view
+     *
+     * @param calculatorHandler
+     */
+    public void setPageSizeCalculatorHandler(PageSizeCalculatorHandler calculatorHandler) {
+        pageSizeCalculatorHandler = calculatorHandler;
+    }
+
     private void setFitEachPage(boolean fitEachPage) {
         this.fitEachPage = fitEachPage;
     }
@@ -1410,6 +1432,9 @@ public class PDFView extends RelativeLayout {
 
         private LinkHandler linkHandler = new DefaultLinkHandler(PDFView.this);
 
+        /** Page size calculator used to calculate optimal page sizes to fit into view */
+        private PageSizeCalculatorHandler pageSizeCalculatorHandler = new DefaultPageSizeCalculatorHandler();
+
         private int defaultPage = 0;
 
         private boolean swipeHorizontal = false;
@@ -1515,6 +1540,18 @@ public class PDFView extends RelativeLayout {
             return this;
         }
 
+        /**
+         * Sets custom page size calculator
+         *
+         * @param pageSizeCalculatorHandler custom page size calculator
+         * @return
+         */
+        public Configurator pageSizeCalculatorHandler(PageSizeCalculatorHandler pageSizeCalculatorHandler)
+        {
+            this.pageSizeCalculatorHandler = pageSizeCalculatorHandler;
+            return  this;
+        }
+
         public Configurator defaultPage(int defaultPage) {
             this.defaultPage = defaultPage;
             return this;
@@ -1611,6 +1648,7 @@ public class PDFView extends RelativeLayout {
             PDFView.this.setFitEachPage(fitEachPage);
             PDFView.this.setPageSnap(pageSnap);
             PDFView.this.setPageFling(pageFling);
+            PDFView.this.setPageSizeCalculatorHandler(pageSizeCalculatorHandler);
 
             if (pageNumbers != null) {
                 PDFView.this.load(documentSource, password, pageNumbers);
